@@ -6,21 +6,24 @@ import pandas as pd
 # ────────────────────────────────────────────────────────────
 # 초보자를 위한 설명
 # 이 앱은 영화진흥위원회(KOBIS)의 "일별 박스오피스" 공개 API를 호출해서
-# 어제 하루 동안의 박스오피스 순위를 스트림릿 화면에 보여주는 앱입니다.
+# 사용자가 달력에서 고른 날짜의 박스오피스 순위를 스트림릿 화면에 보여주는 앱입니다.
 # ────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="어제의 박스오피스", page_icon="🎬", layout="wide")
+st.set_page_config(page_title="박스오피스 조회", page_icon="🎬", layout="wide")
 
-# ── 1. 한국 시간(KST) 기준으로 "어제" 날짜 계산하기 ─────────────
+# ── 1. 한국 시간(KST) 기준으로 "오늘"과 "어제" 날짜 계산하기 ────
 # 스트림릿 클라우드 서버는 한국 시간이 아닐 수 있으므로,
-# UTC 시각을 직접 한국 시간(UTC+9)으로 변환한 뒤 하루를 빼서 "어제"를 구합니다.
+# UTC 시각을 직접 한국 시간(UTC+9)으로 변환해서 씁니다.
+# 오늘 건 아직 집계 전이므로, 달력에서 고를 수 있는 가장 늦은 날짜는 "어제"까지로 제한합니다.
 KST = timezone(timedelta(hours=9))
 
 
-def get_yesterday_yyyymmdd() -> str:
-    now_kst = datetime.now(timezone.utc).astimezone(KST)
-    yesterday_kst = now_kst - timedelta(days=1)
-    return yesterday_kst.strftime("%Y%m%d")
+def get_today_kst_date():
+    return datetime.now(timezone.utc).astimezone(KST).date()
+
+
+def get_yesterday_kst_date():
+    return get_today_kst_date() - timedelta(days=1)
 
 
 # ── 2. KOBIS API 호출 함수 ─────────────────────────────────────
@@ -99,12 +102,12 @@ def fetch_box_office(target_dt: str) -> dict:
         }
 
     if not movies:
+        # 영화 목록이 비어서 오는 경우는 "아직 집계 전"이라는 뜻일 가능성이 가장 크므로
+        # reason_type을 따로 구분해서, 화면에서 전용 안내 문구를 보여줄 수 있게 합니다.
         return {
             "ok": False,
-            "reason": (
-                f"{target_dt} 날짜의 박스오피스 영화 목록이 비어 있습니다. "
-                "해당 날짜의 집계가 아직 완료되지 않았을 수 있습니다."
-            ),
+            "reason_type": "empty",
+            "reason": "그날은 아직 집계 전입니다.",
         }
 
     return {"ok": True, "movies": movies}
@@ -118,18 +121,50 @@ def to_int(value: str) -> int:
         return 0
 
 
-# ── 4. 화면 그리기 ─────────────────────────────────────────────
-st.title("🎬 어제의 박스오피스")
+# ── 3-1. 순위 증감(rankInten)을 화살표 문자열로 바꾸기 ──────────
+def rank_change_display(value: str) -> str:
+    n = to_int(value)
+    if n > 0:
+        return f"▲{n}"
+    elif n < 0:
+        return f"▼{abs(n)}"
+    else:
+        return "-"
 
-target_dt = get_yesterday_yyyymmdd()
+
+def rank_change_color(text: str) -> str:
+    # pandas Styler에 넘길 CSS 문자열입니다.
+    if text.startswith("▲"):
+        return "color: red"
+    elif text.startswith("▼"):
+        return "color: blue"
+    return ""
+
+
+# ── 4. 화면 그리기 ─────────────────────────────────────────────
+st.title("🎬 박스오피스 조회")
+
+today_kst = get_today_kst_date()
+yesterday_kst = get_yesterday_kst_date()
+
+selected_date = st.date_input(
+    "조회할 날짜를 선택하세요 (오늘 건 아직 집계 전이라 어제까지만 고를 수 있어요)",
+    value=yesterday_kst,
+    max_value=yesterday_kst,
+)
+
+target_dt = selected_date.strftime("%Y%m%d")
 target_dt_display = f"{target_dt[:4]}년 {target_dt[4:6]}월 {target_dt[6:]}일"
-st.caption(f"기준 날짜(한국 시간 기준 어제): {target_dt_display}")
+st.caption(f"기준 날짜: {target_dt_display}")
 
 result = fetch_box_office(target_dt)
 
 if not result["ok"]:
-    # 빈 화면 대신, 무엇을 확인해야 하는지 안내 문구를 보여줍니다.
-    st.error(result["reason"])
+    # 영화 목록이 비어서 온 경우(아직 집계 전)와, 그 외 오류를 구분해서 안내합니다.
+    if result.get("reason_type") == "empty":
+        st.info(result["reason"])
+    else:
+        st.error(result["reason"])
 else:
     movies = result["movies"]
 
@@ -139,12 +174,17 @@ else:
         m["audiCnt_num"] = to_int(m.get("audiCnt"))
         m["audiAcc_num"] = to_int(m.get("audiAcc"))
         m["scrnCnt_num"] = to_int(m.get("scrnCnt"))
+        # 누적관객이 100만 명을 넘으면 영화명 옆에 트로피 이모지를 붙입니다.
+        display_name = m.get("movieNm", "-")
+        if m["audiAcc_num"] >= 1_000_000:
+            display_name = f"{display_name} 🏆"
+        m["movieNm_display"] = display_name
 
     movies_sorted = sorted(movies, key=lambda m: m["rank_num"])
 
     # ── 4-1. 1위 영화 지표 카드 3장 ──
     top_movie = movies_sorted[0]
-    st.subheader(f"🏆 1위: {top_movie.get('movieNm', '-')}")
+    st.subheader(f"🥇 1위: {top_movie['movieNm_display']}")
 
     col1, col2, col3 = st.columns(3)
     col1.metric("오늘 관객수", f"{top_movie['audiCnt_num']:,}명")
@@ -159,7 +199,8 @@ else:
         [
             {
                 "순위": m["rank_num"],
-                "영화명": m.get("movieNm", "-"),
+                "순위변동": rank_change_display(m.get("rankInten")),
+                "영화명": m["movieNm_display"],
                 "개봉일": m.get("openDt", "-"),
                 "관객수": m["audiCnt_num"],
                 "누적관객": m["audiAcc_num"],
@@ -168,16 +209,13 @@ else:
             for m in movies_sorted
         ]
     )
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "관객수": st.column_config.NumberColumn(format="%d"),
-            "누적관객": st.column_config.NumberColumn(format="%d"),
-            "스크린수": st.column_config.NumberColumn(format="%d"),
-        },
+    # 순위변동 글자에 색을 입히기 위해 pandas Styler를 사용합니다.
+    # (▲ 오름: 빨간색, ▼ 내림: 파란색)
+    styled_df = (
+        df.style.map(rank_change_color, subset=["순위변동"])
+        .format({"관객수": "{:,}", "누적관객": "{:,}", "스크린수": "{:,}"})
     )
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     st.divider()
 
@@ -185,7 +223,7 @@ else:
     st.subheader("📊 관객수 상위 5편")
     top5 = sorted(movies_sorted, key=lambda m: m["audiCnt_num"], reverse=True)[:5]
     chart_df = pd.DataFrame(
-        {m.get("movieNm", "-"): [m["audiCnt_num"]] for m in top5}
+        {m["movieNm_display"]: [m["audiCnt_num"]] for m in top5}
     ).T
     chart_df.columns = ["관객수"]
     st.bar_chart(chart_df)
