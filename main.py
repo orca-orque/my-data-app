@@ -157,17 +157,6 @@ target_dt = selected_date.strftime("%Y%m%d")
 target_dt_display = f"{target_dt[:4]}년 {target_dt[4:6]}월 {target_dt[6:]}일"
 st.caption(f"기준 날짜: {target_dt_display}")
 
-# ── 진단용 패널 ──────────────────────────────────────────────
-# 날짜를 바꿔도 결과가 똑같아 보일 때, 실제로 어떤 날짜로 요청했는지와
-# 캐시를 강제로 비우고 다시 불러온 결과를 비교해 볼 수 있게 해 줍니다.
-with st.expander("🔧 문제 진단 (날짜를 바꿔도 결과가 같을 때 눌러보세요)"):
-    st.write(f"실제로 API에 보낸 target_dt 값: `{target_dt}`")
-    st.write("이 값이 날짜를 바꿀 때마다 다르게 보인다면, 캐시나 코드 문제가 아니라 "
-             "① 인증키가 예시/테스트 키이거나, ② 그날 실제로 박스오피스가 동일한 경우일 가능성이 높습니다.")
-    if st.button("이 날짜의 캐시를 지우고 API 다시 호출하기"):
-        fetch_box_office.clear()
-        st.rerun()
-
 result = fetch_box_office(target_dt)
 
 if not result["ok"]:
