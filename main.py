@@ -33,7 +33,7 @@ def fetch_box_office(target_dt: str) -> dict:
     성공하면 {"ok": True, "movies": [...]} 형태로,
     실패하면 {"ok": False, "reason": "사람이 읽을 수 있는 안내 문구"} 형태로 돌려줍니다.
     """
-    url = "https://www.kobis.or.kr/kobisopenapi/webservice/rest/boxoffice/searchDailyBoxOfficeList.json?key=1faba8bb9be3b7bd55bde485aae12685&targetDt=20260916"
+    url = "https://www.kobis.or.kr/kobisopenapi/webservice/rest/boxoffice/searchDailyBoxOfficeList.json?key=1faba8bb9be3b7bd55bde485aae12685&targetDt=20260920"
 
     # 인증키는 코드에 직접 적지 않고, 스트림릿 비밀 금고(secrets)에서 불러옵니다.
     # 스트림릿 클라우드 배포 시 "Settings > Secrets"에 KOBIS_KEY = "발급받은키" 형태로 등록해야 합니다.
